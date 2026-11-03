@@ -1,2 +1,2 @@
-export type { Account, UserAccountState, ActiveUserProfile, SignInUserDTO, BankAccountRequestDTO, OnboardingRequestDTO, BankAccountResponseDTO, OnboardingResponseDTO, WithdrawResponseDTO } from '../../../backend/domain/user/dto/res/user.response.dto'
+export type { Account, UserAccountState, ActiveUserProfile, SignInUserDTO, BankAccountRequestDTO, OnboardingRequestDTO, BankAccountResponseDTO, OnboardingResponseDTO, WithdrawResponseDTO } from './contracts'
 export { BANKS, bankDisplayName, bankSelectionCode, formatAccountNumber, normalizeAccountHolder, normalizeBankAccountInput, parseClipboardAccount, recognizedAccountNumber, suggestBanks, type BankAccountInput } from './bankAccount'

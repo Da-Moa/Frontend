@@ -6,14 +6,12 @@ import {
   type TestInfo,
   type WebSocketRoute,
 } from '@playwright/test';
-import { JwtService } from '@nestjs/jwt';
+import { createHmac } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { TEST_ACCOUNTS } from '../../../shared/testAccounts';
 import { uuidV7 } from '../../../shared/uuid';
-import {
-  ACCESS_TOKEN_COOKIE_NAME,
-  REFRESH_TOKEN_COOKIE_NAME,
-} from '../../../backend/global/auth/native';
+const ACCESS_TOKEN_COOKIE_NAME = 'da_moa_access';
+const REFRESH_TOKEN_COOKIE_NAME = 'da_moa_refresh';
 
 export const accounts = TEST_ACCOUNTS;
 
@@ -21,18 +19,13 @@ export function tokens(userId: string, expired = false) {
   const secret = process.env.AUTH_JWT_SECRET;
   if (!secret || Buffer.byteLength(secret) < 32)
     throw new Error('Browser fixture JWT secret is required');
-  const jwt = new JwtService({ secret });
   const sid = randomUUID();
-  const sign = (type: string, expiresIn: number) =>
-    jwt.sign(
-      { sub: userId, sid, token_type: type, purpose: 'app' },
-      {
-        algorithm: 'HS256',
-        audience: 'da-moa',
-        issuer: 'da-moa',
-        expiresIn,
-      },
-    );
+  const sign = (type: string, expiresIn: number) => {
+    const now = Math.floor(Date.now() / 1000);
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const input = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: userId, sid, token_type: type, purpose: 'app', aud: 'da-moa', iss: 'da-moa', iat: now, exp: now + expiresIn })}`;
+    return `${input}.${createHmac('sha256', secret).update(input).digest('base64url')}`;
+  };
   return {
     access: sign('access', expired ? -60 : 600),
     refresh: sign('refresh', 3600),
