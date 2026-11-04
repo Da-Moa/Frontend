@@ -1,13 +1,21 @@
-name: Frontend CI
+name: Frontend CI / CD
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish_image:
+        description: Publish a SHA image for verification; feature branches never deploy
+        type: boolean
+        default: false
 permissions:
   contents: read
+concurrency:
+  group: frontend-pipeline-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  test-and-build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,5 +26,66 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
-      - run: npm run build
-      - run: docker build -t da-moa-frontend:ci .
+  image:
+    needs: test
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: docker/setup-buildx-action@v4
+      - name: Build ARM64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          load: true
+          tags: ghcr.io/da-moa/frontend:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/Da-Moa/Frontend
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Verify standalone production container
+        env:
+          IMAGE: ghcr.io/da-moa/frontend:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(docker image inspect "$IMAGE" --format '{{.Architecture}}')" = arm64
+          container="frontend-ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          trap 'docker logs "$container"; docker rm -f "$container" >/dev/null' EXIT
+          docker run -d --name "$container" -e HOST=0.0.0.0 -e PORT=3000 -p 127.0.0.1::3000 "$IMAGE"
+          port=$(docker port "$container" 3000/tcp | cut -d: -f2)
+          curl --fail --silent --show-error --retry 30 --retry-delay 1 --retry-all-errors --retry-max-time 90 --max-time 5 "http://127.0.0.1:$port/" >/dev/null
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || inputs.publish_image)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish immutable image
+        id: publish
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || inputs.publish_image)
+        env:
+          IMAGE: ghcr.io/da-moa/frontend
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE:$GITHUB_SHA"
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi
+          reference=$(docker image inspect "$IMAGE:$GITHUB_SHA" --format '{{index .RepoDigests 0}}')
+          [[ "$reference" =~ ^ghcr\.io/da-moa/frontend@sha256:[0-9a-f]{64}$ ]]
+          echo "image=$reference" >> "$GITHUB_OUTPUT"
+      - name: Request component deployment
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          DEPLOY_DISPATCH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+          DEPLOY_IMAGE: ${{ steps.publish.outputs.image }}
+        run: node scripts/dispatch-deploy.mjs frontend

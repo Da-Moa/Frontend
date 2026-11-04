@@ -13,7 +13,7 @@
 | 영수증 | 브라우저 Web Worker · @jsquash/avif · WASM AVIF 인코딩 |
 | 계좌 입력 | korean-account |
 | 테스트 | Node test runner · Playwright 1.64.0 · Chromium |
-| CI | GitHub Actions · 독립 테스트·타입 검사·빌드·Docker 빌드 |
+| CI | GitHub Actions · 단위·타입 검사·ARM64 이미지 검증·GHCR 게시·컴포넌트 배포 요청 |
 
 API·인증·DB·영수증 워커는 [Backend](https://github.com/Da-Moa/Backend)가 담당합니다.
 프론트 중계 서버는 브라우저의 Host·Origin과 쿠키·WebSocket 인증 정보를 유지합니다.
